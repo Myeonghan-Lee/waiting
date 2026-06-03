@@ -51,8 +51,8 @@ role = st.sidebar.selectbox("모드 선택", ["📢 대기실 화면", "🛠️ 
 
 # --- 모드 A: 대기실 화면 ---
 if role == "📢 대기실 화면":
-    st.title("📢 진로학업 상담 대기 현황판 (구글 시트 연동)")
-    st.write("※ 구글 스프레드시트의 원본 명단이 반영되며, 3초마다 화면이 자동 갱신됩니다.")
+    st.title("📢 2026 강서양천 진로학업 팝업 데스크 대기 현황판")
+    st.write("※ 3초마다 화면이 자동 갱신됩니다.")
     
     @st.fragment(run_every=3)
     def render_waiting_room():
