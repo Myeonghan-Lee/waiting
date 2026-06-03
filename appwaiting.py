@@ -9,7 +9,7 @@ st.set_page_config(page_title="2026 강서양천 진로학업 팝업 데스크 �
 # =======================================================
 # [설정] 구글 앱스 스크립트 배포 후 복사한 웹앱 URL을 입력하세요.
 # =======================================================
-API_URL = "https://script.google.com/macros/s/AKfycbzm4Ss-f8cek8aGdWyBeHeG47cma2w-Kveyv5AczfqcPslHE018yezjqHLGCLIaiB4h/exec"
+API_URL = "https://script.google.com/macros/s/AKfycbxIMVJhXiish8irtUha4wgMx7N-0AF4M4z8DO0j13pArg71XZFS6qCXyP53tDTTSpFi/exec"
 # =======================================================
 
 # 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수 (느림: 1~2초 소요)
@@ -27,6 +27,7 @@ def fetch_from_gsheets():
                     "row": item["row"],
                     "name": item["parent"],
                     "status": item["status"],
+                    "school": item.get("school", ""),  # 구글 시트 D열의 학교명 정보 추가
                     "start_time": None,         # 상담 시작 시각 (RAM)
                     "alert_triggered": False,   # 7분 30초 경고 활성화 여부 (RAM)
                     "flash_start_time": None    # 깜빡임 애니메이션 시작 시각 (RAM)
@@ -142,17 +143,16 @@ else:
                         flash_elapsed = (datetime.now() - parent["flash_start_time"]).total_seconds()
                         if flash_elapsed <= 10:
                             active_flash = True
-                            # 2초 단위 간격 계산: 0~1초 오렌지, 1~2초 해제, 2~3초 오렌지...
                             if int(flash_elapsed) % 2 == 0:
                                 flash_phase = True
             
-            # 2. 오렌지 깜빡임 화면 효과 반영 (CSS 트랜지션 적용으로 부드럽게 전환)
+            # 2. 오렌지 깜빡임 화면 효과 반영
             if active_flash:
                 if flash_phase:
                     st.markdown("""
                         <style>
                         .stApp {
-                            background-color: #FFD5A1 !important; /* 연한 경고 오렌지 배경 */
+                            background-color: #FFD5A1 !important; 
                             transition: background-color 0.2s ease;
                         }
                         </style>
@@ -170,7 +170,6 @@ else:
                         </style>
                     """, unsafe_allow_html=True)
             else:
-                # 일반 대기 상황일 때 배경색 초기화
                 st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
 
             # 3. 실시간 시계 표시
@@ -185,6 +184,10 @@ else:
                 row_num = parent["row"]
                 start_time = parent.get("start_time")
                 
+                # 학교명 결합 로직 (학교명 값이 존재할 때만 괄호 추가)
+                school_name = f"({parent['school']})" if parent.get("school") else ""
+                display_name = f"{parent['name']}{school_name}"
+                
                 with col1:
                     if status == "상담중":
                         if start_time:
@@ -193,17 +196,17 @@ else:
                             time_badge = f"<span style='color:green; font-weight:bold;'>[상담 중] {mins:02d}:{secs:02d}</span>"
                         else:
                             time_badge = "<span style='color:green; font-weight:bold;'>[상담 중]</span>"
-                        st.markdown(f"🟢 **{parent['name']}** {time_badge}", unsafe_allow_html=True)
+                        st.markdown(f"🟢 **{display_name}** {time_badge}", unsafe_allow_html=True)
                     elif status == "상담종료":
-                        st.markdown(f"🔴 ~~{parent['name']} (완료)~~")
+                        st.markdown(f"🔴 ~~{display_name} (완료)~~")
                     else:
-                        st.markdown(f"◽ {parent['name']} (대기 중)")
+                        st.markdown(f"◽ {display_name} (대기 중)")
                         
                 with col2:
                     if st.button("상담 시작", key=f"start_{my_teacher}_{idx}", disabled=(status != "대기")):
                         parent["status"] = "상담중"
                         parent["start_time"] = datetime.now()
-                        parent["alert_triggered"] = False # 경고 트리거 초기화
+                        parent["alert_triggered"] = False
                         parent["flash_start_time"] = None
                         threading.Thread(target=write_to_gsheets, args=(row_num, "상담중")).start()
                         st.rerun()
