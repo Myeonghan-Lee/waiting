@@ -2,12 +2,12 @@ import streamlit as st
 import requests
 
 # 페이지 설정
-st.set_page_config(page_title="진로학업 상담 대기 현황", layout="wide")
+st.set_page_config(page_title="2026 강서양천 진로학업 팝업 데스크 대기 현황", layout="wide")
 
 # =======================================================
 # [설정] 구글 앱스 스크립트 배포 후 복사한 웹앱 URL을 입력하세요.
 # =======================================================
-API_URL = "여기에_구글_웹앱_URL을_넣으세요"
+API_URL = "https://script.google.com/macros/s/AKfycbzm4Ss-f8cek8aGdWyBeHeG47cma2w-Kveyv5AczfqcPslHE018yezjqHLGCLIaiB4h/exec"
 # =======================================================
 
 # 구글 시트에서 최신 데이터를 가져온 후 선생님별로 묶어주는 함수
