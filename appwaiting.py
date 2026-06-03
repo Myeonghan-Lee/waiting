@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import threading
+from datetime import datetime
 
 # 페이지 기본 설정
 st.set_page_config(page_title="2026 강서양천 진로학업 팝업 데스크 대기 현황", layout="wide")
@@ -25,7 +26,8 @@ def fetch_from_gsheets():
                 grouped[t].append({
                     "row": item["row"],
                     "name": item["parent"],
-                    "status": item["status"]
+                    "status": item["status"],
+                    "start_time": None  # 상담 시작 시각 기록용 (RAM 메모리에만 보관)
                 })
             return grouped
     except Exception as e:
@@ -38,12 +40,11 @@ def write_to_gsheets(row, next_status):
         params = {"action": "update", "row": row, "status": next_status}
         requests.get(API_URL, params=params)
     except Exception as e:
-        pass # 백그라운드에서 백업 처리되므로 에러는 콘솔에만 기록됩니다.
+        pass
 
 # 3. 전역 공유 메모리 설정 (앱 시작 시 딱 한 번만 구글 시트에서 로드)
 @st.cache_resource
 def get_shared_state():
-    # 이 메모리 공간은 접속한 모든 브라우저(대기실, 선생님폰)가 실시간 공유합니다.
     return {"data": fetch_from_gsheets()}
 
 state = get_shared_state()
@@ -61,11 +62,15 @@ if st.sidebar.button("🔄 구글 시트 명단 새로고침"):
 # --- 모드 A: 대기실 화면 ---
 if role == "📢 대기실 화면":
     st.title("📢 2026 강서양천 진로학업 팝업 데스크 대기 현황판")
-    #st.write("※ 대기실 화면은 지연 없이 1초마다 메모리 데이터를 체크하여 실시간 업데이트됩니다.")
     
-    # 로컬 메모리(RAM)를 조회하므로 주기를 1초로 줄여도 트래픽이나 서버 렉이 전혀 발생하지 않습니다.
+    # 1초마다 시계와 대기실 전체를 새로 그리는 프래그먼트
     @st.fragment(run_every=1)
     def render_waiting_room():
+        # 1. 실시간 시계 표시
+        current_time = datetime.now().strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
+        st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
+        st.markdown("---")
+        
         current_data = state["data"]
         if not current_data:
             st.warning("데이터를 불러오는 중이거나 구글 시트에 명단이 비어 있습니다.")
@@ -82,9 +87,17 @@ if role == "📢 대기실 화면":
                 for parent in current_data[t_key]:
                     name = parent["name"]
                     status = parent["status"]
+                    start_time = parent.get("start_time")
                     
                     if status == "상담중":
-                        st.info(f"🟢 **{name}** (상담 중)")
+                        # 대기실 화면에도 현재 상담 진행 시간이 실시간 표기됩니다.
+                        if start_time:
+                            elapsed_sec = int((datetime.now() - start_time).total_seconds())
+                            mins, secs = divmod(elapsed_sec, 60)
+                            time_str = f"({mins:02d}:{secs:02d} 진행 중)"
+                        else:
+                            time_str = "(진행 중)"
+                        st.info(f"🟢 **{name}** {time_str}")
                     elif status == "상담종료":
                         st.markdown(f"⚪ ~~{name} (종료)~~")
                     else:
@@ -105,37 +118,53 @@ else:
     else:
         my_teacher = st.sidebar.selectbox("본인 성함을 선택하세요", teachers_list)
         
-        st.subheader(f"📌 {my_teacher} 담당 학부모 목록")
-        
-        parents_list = current_data.get(my_teacher, [])
-        
-        for idx, parent in enumerate(parents_list):
-            col1, col2, col3 = st.columns([2, 1, 1])
-            status = parent["status"]
-            row_num = parent["row"]
+        # 1초마다 선생님 패널의 시계 및 개별 타이머를 실시간 갱신하는 프래그먼트
+        @st.fragment(run_every=1)
+        def render_teacher_panel():
+            # 1. 실시간 시계 표시
+            current_time = datetime.now().strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
+            st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
+            st.markdown(f"##### 📌 {my_teacher} 담당 학부모 목록")
+            st.write("상태 변경 시 구글 스프레드시트 및 대기실 화면에 즉시 반영됩니다.")
             
-            with col1:
-                if status == "상담중":
-                    st.markdown(f"🟢 **{parent['name']}** <span style='color:green; font-weight:bold;'>[상담 중]</span>", unsafe_allow_html=True)
-                elif status == "상담종료":
-                    st.markdown(f"🔴 ~~{parent['name']} (완료)~~")
-                else:
-                    st.markdown(f"◽ {parent['name']} (대기 중)")
-                    
-            with col2:
-                if st.button("상담 시작", key=f"start_{my_teacher}_{idx}", disabled=(status != "대기")):
-                    # 1. 즉시 대기실 메모리 상태 업데이트 (대기실 화면에 0.1초 만에 즉각 변경)
-                    parent["status"] = "상담중"
-                    # 2. 구글 시트 실제 저장 작업은 백그라운드 스레드로 비동기 처리하여 렉 방지
-                    threading.Thread(target=write_to_gsheets, args=(row_num, "상담중")).start()
-                    # 3. 화면 리프레시
-                    st.rerun()
-                    
-            with col3:
-                if st.button("상담 종료", key=f"end_{my_teacher}_{idx}", disabled=(status != "상담중")):
-                    # 1. 즉시 대기실 메모리 상태 업데이트
-                    parent["status"] = "상담종료"
-                    # 2. 구글 시트 백그라운드 비동기 저장
-                    threading.Thread(target=write_to_gsheets, args=(row_num, "상담종료")).start()
-                    # 3. 화면 리프레시
-                    st.rerun()
+            parents_list = current_data.get(my_teacher, [])
+            
+            for idx, parent in enumerate(parents_list):
+                col1, col2, col3 = st.columns([2, 1, 1])
+                status = parent["status"]
+                row_num = parent["row"]
+                start_time = parent.get("start_time")
+                
+                with col1:
+                    if status == "상담중":
+                        # 상담 시작 시각과의 차이를 계산하여 분:초 단위로 실시간 표시
+                        if start_time:
+                            elapsed_sec = int((datetime.now() - start_time).total_seconds())
+                            mins, secs = divmod(elapsed_sec, 60)
+                            time_badge = f"<span style='color:green; font-weight:bold;'>[상담 중] {mins:02d}:{secs:02d}</span>"
+                        else:
+                            time_badge = "<span style='color:green; font-weight:bold;'>[상담 중]</span>"
+                        st.markdown(f"🟢 **{parent['name']}** {time_badge}", unsafe_allow_html=True)
+                    elif status == "상담종료":
+                        st.markdown(f"🔴 ~~{parent['name']} (완료)~~")
+                    else:
+                        st.markdown(f"◽ {parent['name']} (대기 중)")
+                        
+                with col2:
+                    if st.button("상담 시작", key=f"start_{my_teacher}_{idx}", disabled=(status != "대기")):
+                        # 1. 즉시 상태 변경 및 실시간 타이머 시작 시간 기록
+                        parent["status"] = "상담중"
+                        parent["start_time"] = datetime.now()
+                        # 2. 구글 시트 저장 (백그라운드 처리)
+                        threading.Thread(target=write_to_gsheets, args=(row_num, "상담중")).start()
+                        st.rerun()
+                        
+                with col3:
+                    if st.button("상담 종료", key=f"end_{my_teacher}_{idx}", disabled=(status != "상담중")):
+                        # 1. 즉시 완료 상태 변경
+                        parent["status"] = "상담종료"
+                        # 2. 구글 시트 저장 (백그라운드 처리)
+                        threading.Thread(target=write_to_gsheets, args=(row_num, "상담종료")).start()
+                        st.rerun()
+                        
+        render_teacher_panel()
