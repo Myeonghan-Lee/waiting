@@ -27,7 +27,9 @@ def fetch_from_gsheets():
                     "row": item["row"],
                     "name": item["parent"],
                     "status": item["status"],
-                    "start_time": None  # 상담 시작 시각 기록용 (RAM 메모리에만 보관)
+                    "start_time": None,         # 상담 시작 시각 (RAM)
+                    "alert_triggered": False,   # 7분 30초 경고 활성화 여부 (RAM)
+                    "flash_start_time": None    # 깜빡임 애니메이션 시작 시각 (RAM)
                 })
             return grouped
     except Exception as e:
@@ -61,12 +63,15 @@ if st.sidebar.button("🔄 구글 시트 명단 새로고침"):
 
 # --- 모드 A: 대기실 화면 ---
 if role == "📢 대기실 화면":
-    st.title("📢 2026 강서양천 진로학업 팝업 데스크 대기 현황")
+    st.title("📢 2026 강서양천 진로학업 팝업 데스크 대기 현황판")
     
     # 1초마다 시계와 대기실 전체를 새로 그리는 프래그먼트
     @st.fragment(run_every=1)
     def render_waiting_room():
-        # 1. 실시간 시계 표시 (현재 시각만 상단에 표시)
+        # 기본 배경색 지정 (경고 후 색상 잔상 초기화용)
+        st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
+        
+        # 1. 실시간 시계 표시
         current_time = datetime.now().strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
         st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
         st.markdown("---")
@@ -89,7 +94,6 @@ if role == "📢 대기실 화면":
                     status = parent["status"]
                     
                     if status == "상담중":
-                        # 진행 시간 타이머를 생략하고 단순 '상담 중'으로만 표시합니다.
                         st.info(f"🟢 **{name}** (상담 중)")
                     elif status == "상담종료":
                         st.markdown(f"⚪ ~~{name} (종료)~~")
@@ -114,13 +118,66 @@ else:
         # 1초마다 선생님 패널의 시계 및 개별 타이머를 실시간 갱신하는 프래그먼트
         @st.fragment(run_every=1)
         def render_teacher_panel():
-            # 1. 실시간 시계 표시
+            parents_list = current_data.get(my_teacher, [])
+            
+            # 깜빡임 알림 제어용 변수
+            active_flash = False
+            flash_phase = False  # True일 때 오렌지색 배경, False일 때 기본 배경
+            
+            # 1. 상담 시간 체크 및 경고 시점(7분 30초 = 450초) 계산
+            for idx, parent in enumerate(parents_list):
+                status = parent["status"]
+                start_time = parent.get("start_time")
+                
+                if status == "상담중" and start_time:
+                    elapsed_sec = int((datetime.now() - start_time).total_seconds())
+                    
+                    # 7분 30초 도달 시 깜빡임 시작 시각 최초 1회 기록
+                    if elapsed_sec >= 450 and not parent.get("alert_triggered", False):
+                        parent["alert_triggered"] = True
+                        parent["flash_start_time"] = datetime.now()
+                    
+                    # 깜빡임 조건 만족 시 (애니메이션 시작 후 10초 동안 작동: 2초 간격 * 5번 = 10초)
+                    if parent.get("flash_start_time"):
+                        flash_elapsed = (datetime.now() - parent["flash_start_time"]).total_seconds()
+                        if flash_elapsed <= 10:
+                            active_flash = True
+                            # 2초 단위 간격 계산: 0~1초 오렌지, 1~2초 해제, 2~3초 오렌지...
+                            if int(flash_elapsed) % 2 == 0:
+                                flash_phase = True
+            
+            # 2. 오렌지 깜빡임 화면 효과 반영 (CSS 트랜지션 적용으로 부드럽게 전환)
+            if active_flash:
+                if flash_phase:
+                    st.markdown("""
+                        <style>
+                        .stApp {
+                            background-color: #FFD5A1 !important; /* 연한 경고 오렌지 배경 */
+                            transition: background-color 0.2s ease;
+                        }
+                        </style>
+                        <div style="background-color: #FF8C00; color: white; padding: 15px; text-align: center; font-size: 20px; font-weight: bold; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            ⚠️ 상담 시간 7분 30초 경과! 상담을 마무리해 주세요. ⚠️
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                        <style>
+                        .stApp {
+                            background-color: #f8f9fa !important;
+                            transition: background-color 0.2s ease;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+            else:
+                # 일반 대기 상황일 때 배경색 초기화
+                st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
+
+            # 3. 실시간 시계 표시
             current_time = datetime.now().strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
             st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
             st.markdown(f"##### 📌 {my_teacher} 담당 학부모 목록")
             st.write("상태 변경 시 구글 스프레드시트 및 대기실 화면에 즉시 반영됩니다.")
-            
-            parents_list = current_data.get(my_teacher, [])
             
             for idx, parent in enumerate(parents_list):
                 col1, col2, col3 = st.columns([2, 1, 1])
@@ -130,7 +187,6 @@ else:
                 
                 with col1:
                     if status == "상담중":
-                        # 선생님 패널에서는 여전히 실시간 타이머가 활성화되어 나타납니다.
                         if start_time:
                             elapsed_sec = int((datetime.now() - start_time).total_seconds())
                             mins, secs = divmod(elapsed_sec, 60)
@@ -146,7 +202,9 @@ else:
                 with col2:
                     if st.button("상담 시작", key=f"start_{my_teacher}_{idx}", disabled=(status != "대기")):
                         parent["status"] = "상담중"
-                        parent["start_time"] = datetime.now()  # 타이머 시작을 위해 시작 시간 기록
+                        parent["start_time"] = datetime.now()
+                        parent["alert_triggered"] = False # 경고 트리거 초기화
+                        parent["flash_start_time"] = None
                         threading.Thread(target=write_to_gsheets, args=(row_num, "상담중")).start()
                         st.rerun()
                         
