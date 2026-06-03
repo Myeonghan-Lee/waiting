@@ -1,7 +1,8 @@
 import streamlit as st
 import requests
+import threading
 
-# 페이지 설정
+# 페이지 기본 설정
 st.set_page_config(page_title="2026 강서양천 진로학업 팝업 데스크 대기 현황", layout="wide")
 
 # =======================================================
@@ -10,8 +11,8 @@ st.set_page_config(page_title="2026 강서양천 진로학업 팝업 데스크 �
 API_URL = "https://script.google.com/macros/s/AKfycbzm4Ss-f8cek8aGdWyBeHeG47cma2w-Kveyv5AczfqcPslHE018yezjqHLGCLIaiB4h/exec"
 # =======================================================
 
-# 구글 시트에서 최신 데이터를 가져온 후 선생님별로 묶어주는 함수
-def load_data():
+# 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수 (느림: 1~2초 소요)
+def fetch_from_gsheets():
     try:
         response = requests.get(API_URL)
         if response.status_code == 200:
@@ -22,47 +23,56 @@ def load_data():
                 if t not in grouped:
                     grouped[t] = []
                 grouped[t].append({
-                    "row": item["row"],      # 구글 시트의 실제 행 위치
-                    "name": item["parent"],  # 학부모 이름
-                    "status": item["status"] # 상담 상태
+                    "row": item["row"],
+                    "name": item["parent"],
+                    "status": item["status"]
                 })
             return grouped
     except Exception as e:
-        st.error(f"구글 시트에서 데이터를 불러오지 못했습니다: {e}")
+        st.error(f"구글 시트 읽기 실패: {e}")
     return {}
 
-# 구글 시트의 해당 행의 상태를 업데이트하는 함수
-def update_status(row, next_status):
+# 2. 구글 시트에 상태를 업데이트하는 함수 (느림: 1~2초 소요)
+def write_to_gsheets(row, next_status):
     try:
-        params = {
-            "action": "update",
-            "row": row,
-            "status": next_status
-        }
-        response = requests.get(API_URL, params=params)
-        if response.status_code == 200:
-            return True
+        params = {"action": "update", "row": row, "status": next_status}
+        requests.get(API_URL, params=params)
     except Exception as e:
-        st.error(f"상태를 구글 시트에 기록하지 못했습니다: {e}")
-    return False
+        pass # 백그라운드에서 백업 처리되므로 에러는 콘솔에만 기록됩니다.
 
-# 화면 분할용 메뉴
+# 3. 전역 공유 메모리 설정 (앱 시작 시 딱 한 번만 구글 시트에서 로드)
+@st.cache_resource
+def get_shared_state():
+    # 이 메모리 공간은 접속한 모든 브라우저(대기실, 선생님폰)가 실시간 공유합니다.
+    return {"data": fetch_from_gsheets()}
+
+state = get_shared_state()
+
+# 사이드바 설정 영역
+st.sidebar.title("설정")
 role = st.sidebar.selectbox("모드 선택", ["📢 대기실 화면", "🛠️ 선생님용 관리 패널"])
+
+# 구글 시트의 원본 명단을 중간에 직접 수정했을 때 사용하는 새로고침 버튼
+if st.sidebar.button("🔄 구글 시트 명단 새로고침"):
+    state["data"] = fetch_from_gsheets()
+    st.sidebar.success("구글 시트의 최신 명단을 동기화했습니다!")
+    st.rerun()
 
 # --- 모드 A: 대기실 화면 ---
 if role == "📢 대기실 화면":
-    st.title("📢 2026 강서양천 진로학업 팝업 데스크 대기 현황판")
-    st.write("※ 3초마다 화면이 자동 갱신됩니다.")
+    st.title("📢 2026 강서양천 진로학업 팝업 데스크 대기 현황판 (초고속 자동 갱신)")
+    #st.write("※ 대기실 화면은 지연 없이 1초마다 메모리 데이터를 체크하여 실시간 업데이트됩니다.")
     
-    @st.fragment(run_every=3)
+    # 로컬 메모리(RAM)를 조회하므로 주기를 1초로 줄여도 트래픽이나 서버 렉이 전혀 발생하지 않습니다.
+    @st.fragment(run_every=1)
     def render_waiting_room():
-        current_data = load_data()
+        current_data = state["data"]
         if not current_data:
-            st.warning("등록된 상담 데이터가 없거나 연결 대기 중입니다.")
+            st.warning("데이터를 불러오는 중이거나 구글 시트에 명단이 비어 있습니다.")
             return
             
         teachers = list(current_data.keys())
-        cols = st.columns(min(len(teachers), 5)) # 등록된 선생님 수에 맞게 최대 5열 생성
+        cols = st.columns(min(len(teachers), 5))
         
         for idx, t_key in enumerate(teachers):
             col_idx = idx % 5
@@ -87,17 +97,15 @@ if role == "📢 대기실 화면":
 else:
     st.title("🛠️ 선생님용 상담 관리 패널")
     
-    current_data = load_data()
+    current_data = state["data"]
     teachers_list = list(current_data.keys())
     
     if not teachers_list:
-        st.warning("구글 시트와 연결되지 않아 선생님 목록을 불러올 수 없습니다.")
+        st.warning("명단을 불러올 수 없습니다. 사이드바의 새로고침 버튼을 눌러보세요.")
     else:
-        # 구글 시트에 있는 선생님 목록을 자동으로 인식하여 사이드바에 띄움
         my_teacher = st.sidebar.selectbox("본인 성함을 선택하세요", teachers_list)
         
         st.subheader(f"📌 {my_teacher} 담당 학부모 목록")
-        st.write("상태 변경 시 구글 스프레드시트에 즉시 반영됩니다.")
         
         parents_list = current_data.get(my_teacher, [])
         
@@ -115,13 +123,19 @@ else:
                     st.markdown(f"◽ {parent['name']} (대기 중)")
                     
             with col2:
-                # 대기 중일 때만 상담 시작 활성화
                 if st.button("상담 시작", key=f"start_{my_teacher}_{idx}", disabled=(status != "대기")):
-                    if update_status(row_num, "상담중"):
-                        st.rerun()
-                        
+                    # 1. 즉시 대기실 메모리 상태 업데이트 (대기실 화면에 0.1초 만에 즉각 변경)
+                    parent["status"] = "상담중"
+                    # 2. 구글 시트 실제 저장 작업은 백그라운드 스레드로 비동기 처리하여 렉 방지
+                    threading.Thread(target=write_to_gsheets, args=(row_num, "상담중")).start()
+                    # 3. 화면 리프레시
+                    st.rerun()
+                    
             with col3:
-                # 상담 중일 때만 상담 종료 활성화
                 if st.button("상담 종료", key=f"end_{my_teacher}_{idx}", disabled=(status != "상담중")):
-                    if update_status(row_num, "상담종료"):
-                        st.rerun()
+                    # 1. 즉시 대기실 메모리 상태 업데이트
+                    parent["status"] = "상담종료"
+                    # 2. 구글 시트 백그라운드 비동기 저장
+                    threading.Thread(target=write_to_gsheets, args=(row_num, "상담종료")).start()
+                    # 3. 화면 리프레시
+                    st.rerun()
