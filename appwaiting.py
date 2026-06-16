@@ -1,6 +1,8 @@
 import streamlit as st
 import requests
 import threading
+import json
+import os
 from datetime import datetime, timezone, timedelta
 
 # 페이지 기본 설정
@@ -8,6 +10,9 @@ st.set_page_config(page_title="진로학업 상담 대기 현황", layout="wide"
 
 # 서울 시간대 설정 (UTC+9)
 seoul_tz = timezone(timedelta(hours=9))
+
+# 영구 저장을 위한 로컬 설정 파일 경로
+CONFIG_FILE = "settings_config.json"
 
 # 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수 (느림: 1~2초 소요)
 def fetch_from_gsheets(api_url):
@@ -46,16 +51,33 @@ def write_to_gsheets(api_url, row, next_status):
     except Exception as e:
         pass
 
-# 3. 인앱 환경설정 및 임시 데이터 전역 공유 메모리 정의
-@st.cache_resource
-def get_global_config():
-    # 최초 앱 실행 시 기본으로 사용할 셋팅값입니다. (필요 시 수정 가능)
-    return {
-        "api_url": "",                            # 구글 앱스 스크립트 웹앱 URL (설정 페이지에서 대입)
+# 3. 로컬 파일에서 설정값을 로드하는 함수
+def load_config_from_file():
+    default_config = {
+        "api_url": "",                            # 구글 앱스 스크립트 웹앱 URL
         "event_title": "진로학업 상담 대기 현황",   # 기본 행사명
         "alert_seconds": 450,                     # 기본 알림 제한 시간 (7분 30초)
-        "data": {}                                # 로드된 명단 데이터 저장소
+        "data": {}                                # 로드된 명단 데이터
     }
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                saved_data = json.load(f)
+                # 불러온 값으로 디폴트 설정 덮어쓰기
+                default_config.update(saved_data)
+        except Exception:
+            pass
+    return default_config
+
+# 4. 전역 공유 메모리 초기화 (파일 로드 결합)
+@st.cache_resource
+def get_global_config():
+    # 파일에서 먼저 영구 저장된 설정값을 불러옵니다.
+    config = load_config_from_file()
+    # 등록된 URL이 이미 있는 경우 데이터 로딩도 시작 시 자동으로 시도합니다.
+    if config["api_url"]:
+        config["data"] = fetch_from_gsheets(config["api_url"])
+    return config
 
 config = get_global_config()
 
@@ -66,7 +88,7 @@ role = st.sidebar.selectbox(
     ["📢 대기실 화면", "🛠️ 선생님용 관리 패널", "👑 중간 관리자 화면", "⚙️ 시스템 설정"]
 )
 
-# 구글 API URL 미등록 시 경고 문구 표시
+# 구글 API URL 미등록 시 경고 문구 표시 (설정 화면 제외)
 if not config["api_url"] and role != "⚙️ 시스템 설정":
     st.warning("⚠️ 구글 앱스 스크립트 URL이 등록되지 않았습니다. 사이드바에서 '⚙️ 시스템 설정'으로 이동하여 최초 설정을 완료해 주세요.")
     st.stop()
@@ -298,10 +320,38 @@ elif role == "👑 중간 관리자 화면":
                     
         render_manager_panel()
 
-# --- 모드 4: 시스템 설정 페이지 ---
+# --- 모드 4: 시스템 설정 페이지 (비밀번호 보안 추가) ---
 else:
     st.title("⚙️ 시스템 설정 및 초기 환경 세팅")
-    st.write("본 상담용 웹애플리케이션 구동에 필요한 설정을 실시간으로 조율할 수 있습니다.")
+    
+    # 🔒 비밀번호 인증 검증 단계
+    if "settings_authorized" not in st.session_state:
+        st.session_state["settings_authorized"] = False
+        
+    if not st.session_state["settings_authorized"]:
+        st.markdown("### 🔒 권한 보안")
+        st.write("본 환경설정 공간은 관리 전용입니다. 비밀번호를 입력해 주십시오.")
+        
+        # 엔터키 입력만으로 작동하도록 비밀번호 필드 배치
+        pw_input = st.text_input("접근 비밀번호 입력", type="password", help="사전에 정의된 4자리 숫자를 입력하세요.")
+        if st.button("설정 잠금 해제", type="primary", use_container_width=True) or (pw_input and pw_input == "7854"):
+            if pw_input == "7854":
+                st.session_state["settings_authorized"] = True
+                st.success("인증에 성공했습니다!")
+                st.rerun()
+            elif pw_input:
+                st.error("비밀번호가 올바르지 않습니다. 다시 확인하십시오.")
+        st.stop() # 인증이 통과되지 않으면 아래 UI 렌더링을 완전히 차단합니다.
+        
+    # 인증 통과 후 표기될 제어 센터 UI
+    col_title, col_lock = st.columns([4, 1])
+    with col_title:
+        st.write("🔧 행사 운영 설정을 수정할 수 있습니다. 저장 시 서버 내부 스토리지에 자동 기재됩니다.")
+    with col_lock:
+        if st.button("🔒 다시 잠그기(로그아웃)", use_container_width=True):
+            st.session_state["settings_authorized"] = False
+            st.rerun()
+            
     st.markdown("---")
     
     # 1. 행사명 변경 인풋
@@ -324,6 +374,7 @@ else:
     
     st.markdown("---")
     if st.button("💾 설정 저장 및 스프레드시트 동기화", use_container_width=True, type="primary"):
+        # 전역 메모리 캐시 값 갱신
         config["api_url"] = new_url
         config["event_title"] = new_title
         config["alert_seconds"] = (alert_min * 60) + alert_sec
@@ -332,7 +383,19 @@ else:
             fresh_data = fetch_from_gsheets(new_url)
             if fresh_data:
                 config["data"] = fresh_data
-                st.success("설정 값이 정상적으로 적용되었으며, 데이터 동기화에 성공했습니다!")
+                
+                # 로컬 디스크 파일(settings_config.json)에 데이터를 영구적으로 직렬화하여 기록
+                try:
+                    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                        json.dump({
+                            "api_url": new_url,
+                            "event_title": new_title,
+                            "alert_seconds": (alert_min * 60) + alert_sec
+                        }, f, ensure_ascii=False, indent=4)
+                except Exception as e:
+                    st.error(f"영구 데이터 파일 기록 도중 오류가 발생했습니다: {e}")
+                
+                st.success("설정 값이 정상적으로 보존되었으며, 스프레드시트 동기화에 성공했습니다!")
                 st.rerun()
             else:
                 st.warning("설정 값은 기록되었으나 구글 시트 데이터를 로드하지 못했습니다. 입력하신 구글 URL과 권한 설정을 확인해 주십시오.")
