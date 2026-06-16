@@ -1,0 +1,27 @@
+function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  
+  // 1. 상태 업데이트 요청 처리
+  if (e && e.parameter && e.parameter.action === 'update') {
+    var row = parseInt(e.parameter.row);
+    var status = e.parameter.status;
+    sheet.getRange(row, 3).setValue(status);
+    return ContentService.createTextOutput(JSON.stringify({result: "success"}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  // 2. 전체 명단 조회 (학교명이 있는 D열 포함)
+  var data = sheet.getDataRange().getValues();
+  var result = [];
+  for (var i = 1; i < data.length; i++) {
+    result.push({
+      row: i + 1,
+      teacher: data[i][0],
+      parent: data[i][1],
+      status: data[i][2],
+      school: data[i][3] || ""
+    });
+  }
+  return ContentService.createTextOutput(JSON.stringify(result))
+    .setMimeType(ContentService.MimeType.JSON);
+}
