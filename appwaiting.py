@@ -6,30 +6,17 @@ from datetime import datetime, timezone, timedelta
 # 페이지 기본 설정
 st.set_page_config(page_title="진로학업 상담 대기 현황", layout="wide")
 
-# 서울 시간대 설정 (UTC+9) - 해외 서버 구동 시 시간 맞춤용
+# 서울 시간대 설정 (UTC+9)
 seoul_tz = timezone(timedelta(hours=9))
 
-# =======================================================
-# [설정] 구글 앱스 스크립트 배포 후 복사한 웹앱 URL을 입력하세요.
-# =======================================================
-API_URL = "https://script.google.com/macros/s/AKfycbxIMVJhXiish8irtUha4wgMx7N-0AF4M4z8DO0j13pArg71XZFS6qCXyP53tDTTSpFi/exec"
-# =======================================================
-
-# 구글 시트에서 설정값 및 명단을 가져오는 함수
-def fetch_from_gsheets():
+# 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수 (느림: 1~2초 소요)
+def fetch_from_gsheets(api_url):
+    if not api_url:
+        return {}
     try:
-        response = requests.get(API_URL)
+        response = requests.get(api_url)
         if response.status_code == 200:
-            res_json = response.json()
-            
-            # 새 스크립트 포맷 대응 검증
-            if "settings" in res_json:
-                settings = res_json["settings"]
-                raw_list = res_json["list"]
-            else:
-                settings = {"title": "진로학업 상담 대기 현황", "alert_seconds": 450}
-                raw_list = res_json
-
+            raw_list = response.json()
             grouped = {}
             for item in raw_list:
                 t = item["teacher"]
@@ -40,59 +27,66 @@ def fetch_from_gsheets():
                     "name": item["parent"],
                     "status": item["status"],
                     "school": item.get("school", ""),
-                    "start_time": None,
-                    "alert_triggered": False,
-                    "flash_start_time": None
+                    "start_time": None,         # 상담 시작 시각 (RAM)
+                    "alert_triggered": False,   # 경고 활성화 여부 (RAM)
+                    "flash_start_time": None    # 깜빡임 애니메이션 시작 시각 (RAM)
                 })
-            return {"settings": settings, "data": grouped}
+            return grouped
     except Exception as e:
         st.error(f"구글 시트 읽기 실패: {e}")
-    return {"settings": {"title": "진로학업 상담 대기 현황", "alert_seconds": 450}, "data": {}}
+    return {}
 
-# 구글 시트에 데이터 업데이트 요청
-def write_to_gsheets(row, next_status):
+# 2. 구글 시트에 상태를 업데이트하는 함수
+def write_to_gsheets(api_url, row, next_status):
+    if not api_url:
+        return
     try:
         params = {"action": "update", "row": row, "status": next_status}
-        requests.get(API_URL, params=params)
+        requests.get(api_url, params=params)
     except Exception as e:
         pass
 
-# 전역 공유 메모리
+# 3. 인앱 환경설정 및 임시 데이터 전역 공유 메모리 정의
 @st.cache_resource
-def get_shared_state():
-    return {"payload": fetch_from_gsheets()}
+def get_global_config():
+    # 최초 앱 실행 시 기본으로 사용할 셋팅값입니다. (필요 시 수정 가능)
+    return {
+        "api_url": "",                            # 구글 앱스 스크립트 웹앱 URL (설정 페이지에서 대입)
+        "event_title": "진로학업 상담 대기 현황",   # 기본 행사명
+        "alert_seconds": 450,                     # 기본 알림 제한 시간 (7분 30초)
+        "data": {}                                # 로드된 명단 데이터 저장소
+    }
 
-state = get_shared_state()
+config = get_global_config()
 
 # 사이드바 설정 영역
-st.sidebar.title("🛠️ 시스템 설정")
-role = st.sidebar.selectbox("모드 선택", ["📢 대기실 화면", "🛠️ 선생님용 관리 패널", "👑 중간 관리자 화면"])
+st.sidebar.title("🛠️ 모드 선택")
+role = st.sidebar.selectbox(
+    "원하는 모드를 선택하세요", 
+    ["📢 대기실 화면", "🛠️ 선생님용 관리 패널", "👑 중간 관리자 화면", "⚙️ 시스템 설정"]
+)
 
-if st.sidebar.button("🔄 구글 시트 새로고침"):
-    state["payload"] = fetch_from_gsheets()
-    st.sidebar.success("동기화가 완료되었습니다!")
-    st.rerun()
-
-# 전역 설정값 로드
-event_title = state["payload"]["settings"].get("title", "진로학업 상담 대기 현황")
-alert_seconds_limit = int(state["payload"]["settings"].get("alert_seconds", 450))
+# 구글 API URL 미등록 시 경고 문구 표시
+if not config["api_url"] and role != "⚙️ 시스템 설정":
+    st.warning("⚠️ 구글 앱스 스크립트 URL이 등록되지 않았습니다. 사이드바에서 '⚙️ 시스템 설정'으로 이동하여 최초 설정을 완료해 주세요.")
+    st.stop()
 
 # --- 모드 1: 대기실 화면 ---
 if role == "📢 대기실 화면":
-    st.title(f"📢 {event_title}")
+    st.title(f"📢 {config['event_title']}")
     
     @st.fragment(run_every=1)
     def render_waiting_room():
         st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
         
-        # 서울 시간으로 시계 표시
+        # 서울 기준 시간 출력
         current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
         st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
         st.markdown("---")
         
-        current_data = state["payload"]["data"]
+        current_data = config["data"]
         if not current_data:
-            st.warning("등록된 데이터가 없습니다.")
+            st.warning("등록된 데이터가 없거나 구글 시트 연동 대기 중입니다.")
             return
             
         teachers = list(current_data.keys())
@@ -114,13 +108,11 @@ if role == "📢 대기실 화면":
                     st.markdown(f"◽ {name}")
             st.markdown("---")
 
-        # 첫 번째 줄 출력 (최대 6개)
         cols1 = st.columns(6)
         for idx, t_key in enumerate(row1_teachers):
             with cols1[idx]:
                 display_column(t_key)
                 
-        # 두 번째 줄 출력 (최대 6개)
         if row2_teachers:
             cols2 = st.columns(6)
             for idx, t_key in enumerate(row2_teachers):
@@ -131,13 +123,13 @@ if role == "📢 대기실 화면":
 
 # --- 모드 2: 선생님용 관리 패널 ---
 elif role == "🛠️ 선생님용 관리 패널":
-    st.title(f"🛠️ {event_title} - 교사 전용")
+    st.title(f"🛠️ {config['event_title']} - 교사 전용")
     
-    current_data = state["payload"]["data"]
+    current_data = config["data"]
     teachers_list = list(current_data.keys())
     
     if not teachers_list:
-        st.warning("데이터를 읽어올 수 없습니다.")
+        st.warning("데이터를 읽어올 수 없습니다. 설정 창에서 URL 등록과 동기화가 제대로 되었는지 확인하십시오.")
     else:
         my_teacher = st.sidebar.selectbox("본인 성함을 선택하세요", teachers_list)
         
@@ -146,8 +138,9 @@ elif role == "🛠️ 선생님용 관리 패널":
             parents_list = current_data.get(my_teacher, [])
             active_flash = False
             flash_phase = False
+            alert_limit = config["alert_seconds"]
             
-            # 알림 제한 시간에 도달했는지 확인 (구글 시트에서 설정한 값 적용)
+            # 알림 제한 시간에 도달했는지 확인
             for idx, parent in enumerate(parents_list):
                 status = parent["status"]
                 start_time = parent.get("start_time")
@@ -155,7 +148,7 @@ elif role == "🛠️ 선생님용 관리 패널":
                 if status == "상담중" and start_time:
                     elapsed_sec = int((datetime.now(seoul_tz) - start_time).total_seconds())
                     
-                    if elapsed_sec >= alert_seconds_limit and not parent.get("alert_triggered", False):
+                    if elapsed_sec >= alert_limit and not parent.get("alert_triggered", False):
                         parent["alert_triggered"] = True
                         parent["flash_start_time"] = datetime.now(seoul_tz)
                     
@@ -183,8 +176,8 @@ elif role == "🛠️ 선생님용 관리 패널":
                 st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
 
             current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
-            st.markdown(f"#### 🕒 현재 시각 (서울): **{current_time}**")
-            st.markdown(f"##### 📌 {my_teacher} 담당 학부모 목록 (경고 임계치: {alert_seconds_limit}초)")
+            st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
+            st.markdown(f"##### 📌 {my_teacher} 담당 학부모 목록 (경고 기준: {alert_limit // 60}분 {alert_limit % 60}초)")
             
             for idx, parent in enumerate(parents_list):
                 col1, col2, col3 = st.columns([2, 1, 1])
@@ -215,28 +208,27 @@ elif role == "🛠️ 선생님용 관리 패널":
                         parent["start_time"] = datetime.now(seoul_tz)
                         parent["alert_triggered"] = False
                         parent["flash_start_time"] = None
-                        threading.Thread(target=write_to_gsheets, args=(row_num, "상담중")).start()
+                        threading.Thread(target=write_to_gsheets, args=(config["api_url"], row_num, "상담중")).start()
                         st.rerun()
                         
                 with col3:
                     if st.button("상담 종료", key=f"end_{my_teacher}_{idx}", disabled=(status != "상담중")):
                         parent["status"] = "상담종료"
-                        threading.Thread(target=write_to_gsheets, args=(row_num, "상담종료")).start()
+                        threading.Thread(target=write_to_gsheets, args=(config["api_url"], row_num, "상담종료")).start()
                         st.rerun()
                         
         render_teacher_panel()
 
 # --- 모드 3: 중간 관리자 화면 ---
-else:
-    st.title(f"👑 {event_title} - 통합 관제 시스템")
+elif role == "👑 중간 관리자 화면":
+    st.title(f"👑 {config['event_title']} - 통합 관제 시스템")
     
-    current_data = state["payload"]["data"]
+    current_data = config["data"]
     teachers_list = list(current_data.keys())
     
     if not teachers_list:
-        st.warning("데이터를 읽어올 수 없습니다.")
+        st.warning("데이터를 읽어올 수 없습니다. 설정 페이지에서 URL 설정 및 데이터 동기화를 진행하십시오.")
     else:
-        # 관제 대상 선생님 선택 (기본적으로 첫 6명 우선 배치)
         st.sidebar.subheader("관제 설정")
         selected_teachers = st.sidebar.multiselect(
             "모니터링할 선생님 선택 (최대 6명)",
@@ -255,7 +247,6 @@ else:
                 st.info("사이드바에서 관제할 선생님을 선택해 주세요.")
                 return
                 
-            # 화면 레이아웃: 3열씩 2줄 그리드로 정렬하여 효율적으로 6명을 한 화면에 수용
             m_cols = st.columns(3)
             
             for idx, t_key in enumerate(selected_teachers[:6]):
@@ -272,7 +263,6 @@ else:
                         school_name = f"({parent['school']})" if parent.get("school") else ""
                         p_display_name = f"{parent['name']}{school_name}"
                         
-                        # 공간 효율을 위해 이름과 버튼을 좌우 분할 정렬
                         sc1, sc2 = st.columns([1.5, 1])
                         
                         with sc1:
@@ -289,22 +279,60 @@ else:
                                 st.markdown(f"◽ {parent['name']}")
                                 
                         with sc2:
-                            # 좁은 카드 영역 전용 초미니 버튼식 관리 도구
                             if p_status == "대기":
                                 if st.button("시작", key=f"mgr_st_{t_key}_{p_idx}", use_container_width=True):
                                     parent["status"] = "상담중"
                                     parent["start_time"] = datetime.now(seoul_tz)
                                     parent["alert_triggered"] = False
                                     parent["flash_start_time"] = None
-                                    threading.Thread(target=write_to_gsheets, args=(p_row_num, "상담중")).start()
+                                    threading.Thread(target=write_to_gsheets, args=(config["api_url"], p_row_num, "상담중")).start()
                                     st.rerun()
                             elif p_status == "상담중":
                                 if st.button("종료", key=f"mgr_en_{t_key}_{p_idx}", use_container_width=True):
                                     parent["status"] = "상담종료"
-                                    threading.Thread(target=write_to_gsheets, args=(p_row_num, "상담종료")).start()
+                                    threading.Thread(target=write_to_gsheets, args=(config["api_url"], p_row_num, "상담종료")).start()
                                     st.rerun()
                             else:
                                 st.caption("완료됨")
                     st.markdown("---")
                     
         render_manager_panel()
+
+# --- 모드 4: 시스템 설정 페이지 ---
+else:
+    st.title("⚙️ 시스템 설정 및 초기 환경 세팅")
+    st.write("본 상담용 웹애플리케이션 구동에 필요한 설정을 실시간으로 조율할 수 있습니다.")
+    st.markdown("---")
+    
+    # 1. 행사명 변경 인풋
+    new_title = st.text_input("1. 행사명 설정", value=config["event_title"])
+    
+    # 2. 알림 시간 분/초 단위 인풋
+    st.write("2. 교사 관리 패널 경고 시간 설정")
+    col1, col2 = st.columns(2)
+    with col1:
+        alert_min = st.number_input("알림 기준 (분)", min_value=0, max_value=60, value=int(config["alert_seconds"] // 60))
+    with col2:
+        alert_sec = st.number_input("알림 기준 (초)", min_value=0, max_value=59, value=int(config["alert_seconds"] % 60))
+        
+    # 3. 구글 앱스 스크립트 API URL 인풋
+    new_url = st.text_input(
+        "3. 구글 앱스 스크립트 웹앱 URL 입력", 
+        value=config["api_url"], 
+        placeholder="https://script.google.com/macros/s/.../exec"
+    )
+    
+    st.markdown("---")
+    if st.button("💾 설정 저장 및 스프레드시트 동기화", use_container_width=True, type="primary"):
+        config["api_url"] = new_url
+        config["event_title"] = new_title
+        config["alert_seconds"] = (alert_min * 60) + alert_sec
+        
+        with st.spinner("구글 스프레드시트에서 데이터를 새로 가져오는 중입니다..."):
+            fresh_data = fetch_from_gsheets(new_url)
+            if fresh_data:
+                config["data"] = fresh_data
+                st.success("설정 값이 정상적으로 적용되었으며, 데이터 동기화에 성공했습니다!")
+                st.rerun()
+            else:
+                st.warning("설정 값은 기록되었으나 구글 시트 데이터를 로드하지 못했습니다. 입력하신 구글 URL과 권한 설정을 확인해 주십시오.")
