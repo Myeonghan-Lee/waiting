@@ -12,7 +12,7 @@ seoul_tz = timezone(timedelta(hours=9))
 # =======================================================
 # [설정] 구글 앱스 스크립트 배포 후 복사한 웹앱 URL을 입력하세요.
 # =======================================================
-API_URL = "여기에_구글_웹앱_URL을_넣으세요"
+API_URL = "https://script.google.com/macros/s/AKfycbxIMVJhXiish8irtUha4wgMx7N-0AF4M4z8DO0j13pArg71XZFS6qCXyP53tDTTSpFi/exec"
 # =======================================================
 
 # 구글 시트에서 설정값 및 명단을 가져오는 함수
