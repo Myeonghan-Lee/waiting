@@ -178,7 +178,7 @@ if role == "📢 대기실 화면":
             <div style="font-size: 13px; color: #4a5568; margin-bottom: 0px; padding-bottom: 0px; line-height: 1;">
                 🕒 현재 시각: {current_time}
             </div>
-            <hr style="margin-top: 5px; margin-bottom: 12px; border: 0; height: 1px; background: #cbd5e0;">
+            <hr style="margin-top: 5px; margin-bottom: 5px; border: 0; height: 1px; background: #cbd5e0;">
         """, unsafe_allow_html=True)
         
         current_data = config["data"]
