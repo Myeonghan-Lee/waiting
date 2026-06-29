@@ -150,14 +150,14 @@ if role == "📢 대기실 화면":
                 col_idx = idx % 5
                 with inner_cols[col_idx]:
                     # 폰트와 행 간격 압축 디자인
-                    st.markdown(f"<p style='font-size:16px; font-weight:bold; margin-bottom:5px; color:#2E4053;'>🏫 {t_key}</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='font-size:20px; font-weight:bold; margin-bottom:5px; color:#2E4053;'>🏫 {t_key}</p>", unsafe_allow_html=True)
                     
                     for parent in current_data[t_key]:
                         name = parent["name"]
                         status = parent["status"]
                         
                         if status == "상담중":
-                            st.markdown(f"<div style='font-size:13px; font-weight:bold; color:#196F3D; background-color:#D4EFDF; padding:2px 6px; border-radius:3px; margin:2px 0;'>🟢 {name}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#196F3D; background-color:#D4EFDF; padding:2px 6px; border-radius:3px; margin:2px 0;'>🟢 {name}</div>", unsafe_allow_html=True)
                         elif status == "상담종료":
                             st.markdown(f"<div style='font-size:12px; color:#95A5A6; text-decoration:line-through; margin:2px 0;'>⚪ {name} (종료)</div>", unsafe_allow_html=True)
                         else:
