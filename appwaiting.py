@@ -175,7 +175,7 @@ if role == "📢 대기실 화면":
         # 시계 사이즈 소형화 및 아래 마진 제거
         current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
         st.markdown(f"""
-            <div style="font-size: 13px; color: #4a5568; margin-bottom: 0px; padding-bottom: 0px; line-height: 1;">
+            <div style="font-size: 1em; color: #4a5568; margin-bottom: 0px; padding-bottom: 0px; line-height: 1;">
                 🕒 현재 시각: {current_time}
             </div>
             <hr style="margin-top: 5px; margin-bottom: 12px; border: 0; height: 1px; background: #cbd5e0;">
