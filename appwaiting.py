@@ -245,7 +245,7 @@ if role == "📢 대기실 화면":
             st.markdown(f"""
                 <div style="
                     position: fixed;
-                    right: 0px;
+                    right: 10px;
                     top: 50%;
                     transform: translateY(-50%);
                     width: 640px;
