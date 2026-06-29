@@ -195,7 +195,7 @@ if role == "📢 대기실 화면":
             parents = current_data[t_key]
             
             # 학생 수와 상관없이 항상 정확히 7행을 그리도록 설계 (빈 자리는 투명 Spacer 채움)
-            for k in range(7):
+            for k in range(5):
                 if k < len(parents):
                     parent = parents[k]
                     name = parent["name"]
