@@ -15,15 +15,17 @@ seoul_tz = timezone(timedelta(hours=9))
 # 영구 저장을 위한 로컬 설정 파일 경로
 CONFIG_FILE = "settings_config.json"
 
-# 유튜브 URL에서 영상 고유 ID(11자리)를 추출하는 정규식 함수
+# 유튜브 URL에서 11자리 비디오 ID 추출하는 정규식 함수
 def extract_youtube_id(url):
     if not url:
         return None
-    pattern = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
+    pattern = r'(?:v=|\/embed\/|\/1\/|\/v\/|https:\/\/youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})'
     match = re.search(pattern, url)
-    return match.group(1) if match else None
+    if match:
+        return match.group(1)
+    return None
 
-# 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수 (느림: 1~2초 소요)
+# 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수
 def fetch_from_gsheets(api_url):
     if not api_url:
         return {}
@@ -66,9 +68,8 @@ def load_config_from_file():
         "api_url": "",                            # 구글 앱스 스크립트 웹앱 URL
         "event_title": "진로학업 상담 대기 현황",   # 기본 행사명
         "alert_seconds": 450,                     # 기본 알림 제한 시간 (7분 30초)
-        "yt_url_1": "",                           # 유튜브 주소 1
-        "yt_url_2": "",                           # 유튜브 주소 2
-        "yt_url_3": "",                           # 유튜브 주소 3
+        "yt_url_1": "",                           # 유튜브 1순위 URL (RAM)
+        "yt_url_2": "",                           # 유튜브 2순위 URL (RAM)
         "data": {}                                # 로드된 명단 데이터
     }
     if os.path.exists(CONFIG_FILE):
@@ -108,83 +109,13 @@ if role == "📢 대기실 화면":
     
     @st.fragment(run_every=1)
     def render_waiting_room():
-        # 기본 배경 설정
-        st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
-        
-        # 1. 유튜브 설정 등록 여부 파악 및 플레이어 조립
-        yt_ids = []
-        for url in [config.get("yt_url_1"), config.get("yt_url_2"), config.get("yt_url_3")]:
-            v_id = extract_youtube_id(url)
-            if v_id:
-                yt_ids.append(v_id)
-                
-        # 유튜브가 실행 중일 때 대기판 폰트/마진 축소 및 우측 공백 강제 확보 CSS 주입
-        if yt_ids:
-            first_id = yt_ids[0]
-            playlist_str = ",".join(yt_ids)
-            # 연속 반복 무한 재생 규격 조립
-            embed_url = f"https://www.youtube.com/embed/{first_id}?playlist={playlist_str}&loop=1&autoplay=1&mute=1&controls=1"
-            
-            st.markdown(f"""
-                <style>
-                /* 우측 하단 유튜브 배치 공간 확보를 위해 전체 콘텐츠 패딩 적용 */
-                .main .block-container {{
-                    padding-right: 1060px !important;
-                    transition: all 0.3s ease;
-                }}
-                /* 대기화면 현황판 컴팩트화 스타일 */
-                .stMarkdown h3 {{
-                    font-size: 1.05rem !important;
-                    margin-top: 0px !important;
-                    margin-bottom: 3px !important;
-                }}
-                div[data-testid="stNotification"] {{
-                    padding: 3px 6px !important;
-                    min-height: auto !important;
-                    margin-bottom: 2px !important;
-                }}
-                div[data-testid="stNotification"] p {{
-                    font-size: 0.8rem !important;
-                }}
-                .normal-parent-text {{
-                    font-size: 0.8rem !important;
-                    margin-bottom: 1px !important;
-                }}
-                /* 우측 하단 고정 유튜브 컨테이너 */
-                .youtube-fixed-container {{
-                    position: fixed;
-                    bottom: 20px;
-                    right: 20px;
-                    width: 1024px;
-                    height: 576px;
-                    z-index: 9999;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-                    border-radius: 14px;
-                    overflow: hidden;
-                    border: 3px solid #FF8C00;
-                    background-color: #000;
-                }}
-                </style>
-                <div class="youtube-fixed-container">
-                    <iframe width="1024" height="576" 
-                        src="{embed_url}" 
-                        title="Waiting Room Video" 
-                        frameborder="0" 
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-                        referrerpolicy="strict-origin-when-cross-origin" 
-                        allowfullscreen>
-                    </iframe>
-                </div>
-            """, unsafe_allow_html=True)
-        else:
-            # 유튜브 미등록 시 기본 와이드 스타일 적용
-            st.markdown("""
-                <style>
-                .main .block-container { padding-right: 3rem !important; }
-                .stMarkdown h3 { font-size: 1.3rem !important; }
-                .normal-parent-text { font-size: 0.95rem !important; }
-                </style>
-            """, unsafe_allow_html=True)
+        # 전체 화면 조밀한 패딩 설정
+        st.markdown("""
+            <style>
+            .stApp { background-color: #f8f9fa !important; }
+            .block-container { padding-top: 1.5rem !important; padding-bottom: 0.5rem !important; }
+            </style>
+        """, unsafe_allow_html=True)
         
         # 서울 기준 시간 출력
         current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
@@ -198,34 +129,66 @@ if role == "📢 대기실 화면":
             
         teachers = list(current_data.keys())
         
-        # 6명씩 끊어서 2줄로 배치하는 그리드 정렬 (6열 2줄 구조 유지)
-        row1_teachers = teachers[:6]
-        row2_teachers = teachers[6:12]
+        # 유튜브 URL 파싱 후 재생 리스트 구성 (2개 무한 루프 구현)
+        yt_id1 = extract_youtube_id(config.get("yt_url_1", ""))
+        yt_id2 = extract_youtube_id(config.get("yt_url_2", ""))
         
-        def display_column(t_key):
-            st.markdown(f"### 🏫 {t_key}")
-            for parent in current_data[t_key]:
-                name = parent["name"]
-                status = parent["status"]
-                if status == "상담중":
-                    st.info(f"🟢 **{name}** (상담 중)")
-                elif status == "상담종료":
-                    st.markdown(f"⚪ ~~{name} (종료)~~")
-                else:
-                    st.markdown(f"<p class='normal-parent-text'>◽ {name}</p>", unsafe_allow_html=True)
-            st.markdown("---")
-
-        cols1 = st.columns(6)
-        for idx, t_key in enumerate(row1_teachers):
-            with cols1[idx]:
-                display_column(t_key)
-                
-        if row2_teachers:
-            cols2 = st.columns(6)
-            for idx, t_key in enumerate(row2_teachers):
-                with cols2[idx]:
-                    display_column(t_key)
+        has_video = bool(yt_id1 or yt_id2)
+        
+        # 레이아웃 정의 (유튜브가 있으면 좌우 분할, 없으면 전체 화면 대기판)
+        if has_video:
+            col_left, col_right = st.columns([1.6, 1])  # 61.5% : 38.5% 화면 분할
+        else:
+            col_left = st.container()
+            
+        # [좌측 화면] 한 화면에 모든 대기 명단이 표기되는 컴팩트 레이아웃
+        with col_left:
+            # 좌측 내부 공간 분할 (5열 배치)
+            inner_cols = st.columns(5)
+            
+            for idx, t_key in enumerate(teachers):
+                col_idx = idx % 5
+                with inner_cols[col_idx]:
+                    # 폰트와 행 간격 압축 디자인
+                    st.markdown(f"<p style='font-size:16px; font-weight:bold; margin-bottom:5px; color:#2E4053;'>🏫 {t_key}</p>", unsafe_allow_html=True)
                     
+                    for parent in current_data[t_key]:
+                        name = parent["name"]
+                        status = parent["status"]
+                        
+                        if status == "상담중":
+                            st.markdown(f"<div style='font-size:13px; font-weight:bold; color:#196F3D; background-color:#D4EFDF; padding:2px 6px; border-radius:3px; margin:2px 0;'>🟢 {name}</div>", unsafe_allow_html=True)
+                        elif status == "상담종료":
+                            st.markdown(f"<div style='font-size:12px; color:#95A5A6; text-decoration:line-through; margin:2px 0;'>⚪ {name} (종료)</div>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<div style='font-size:12px; color:#2C3E50; margin:2px 0;'>◽ {name}</div>", unsafe_allow_html=True)
+                    st.markdown("<hr style='margin: 8px 0; border:0; border-top:1px solid #ddd;'>", unsafe_allow_html=True)
+                    
+        # [우측 화면] 유튜브 가로 640, 세로 360 정밀 중앙 배치
+        if has_video:
+            with col_right:
+                # 연속 반복(Loop)을 위한 재생목록 매개변수 빌딩
+                if yt_id1 and yt_id2:
+                    playlist = f"{yt_id1},{yt_id2}"
+                    start_video = yt_id1
+                else:
+                    start_video = yt_id1 if yt_id1 else yt_id2
+                    playlist = start_video
+                    
+                # 구글 크롬/Safari 정책에 맞춰 자동재생을 위한 음소거(mute=1) 탑재
+                embed_url = f"https://www.youtube.com/embed/{start_video}?playlist={playlist}&loop=1&autoplay=1&mute=1&controls=1"
+                
+                # 우측 영역 세로 정중앙 정렬을 위한 flex 디자인 적용
+                st.markdown(f"""
+                    <div style="display: flex; align-items: center; justify-content: center; height: 75vh; width: 100%;">
+                        <div style="border: 2px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); overflow: hidden; width: 640px; height: 360px;">
+                            <iframe width="640" height="360" src="{embed_url}" 
+                                    frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen>
+                            </iframe>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
     render_waiting_room()
 
 # --- 모드 2: 선생님용 관리 패널 ---
@@ -405,11 +368,11 @@ elif role == "👑 중간 관리자 화면":
                     
         render_manager_panel()
 
-# --- 모드 4: 시스템 설정 페이지 (유튜브 입력 기능 추가) ---
+# --- 모드 4: 시스템 설정 페이지 ---
 else:
     st.title("⚙️ 시스템 설정 및 초기 환경 세팅")
     
-    # 🔒 비밀번호 인증 검증 단계
+    # 비밀번호 인증 검증 단계
     if "settings_authorized" not in st.session_state:
         st.session_state["settings_authorized"] = False
         
@@ -417,14 +380,14 @@ else:
         st.markdown("### 🔒 권한 보안")
         st.write("본 환경설정 공간은 관리 전용입니다. 비밀번호를 입력해 주십시오.")
         
-        pw_input = st.text_input("접근 비밀번호 입력", type="password", help="사전에 정의된 4자리 숫자를 입력하세요.")
+        pw_input = st.text_input("접근 비밀번호 입력", type="password")
         if st.button("설정 잠금 해제", type="primary", use_container_width=True) or (pw_input and pw_input == "7854"):
             if pw_input == "7854":
                 st.session_state["settings_authorized"] = True
                 st.success("인증에 성공했습니다!")
                 st.rerun()
             elif pw_input:
-                st.error("비밀번호가 올바르지 않습니다. 다시 확인하십시오.")
+                st.error("비밀번호가 올바르지 않습니다.")
         st.stop()
         
     col_title, col_lock = st.columns([4, 1])
@@ -448,11 +411,10 @@ else:
     with col2:
         alert_sec = st.number_input("알림 기준 (초)", min_value=0, max_value=59, value=int(config["alert_seconds"] % 60))
         
-    # 3. 유튜브 반복 재생 영상 URL 인풋 (최대 3개)
-    st.write("3. 대기 화면 우측 하단 유튜브 반복 재생 영상 주소 입력")
-    new_yt1 = st.text_input("유튜브 영상 주소 1", value=config.get("yt_url_1", ""), placeholder="https://www.youtube.com/watch?v=...")
-    new_yt2 = st.text_input("유튜브 영상 주소 2 (선택)", value=config.get("yt_url_2", ""), placeholder="https://www.youtube.com/watch?v=...")
-    new_yt3 = st.text_input("유튜브 영상 주소 3 (선택)", value=config.get("yt_url_3", ""), placeholder="https://www.youtube.com/watch?v=...")
+    # 3. 유튜브 주소 설정 (최대 2개 무한반복 연동)
+    st.write("3. 대기실 재생용 유튜브 비디오 설정 (입력 시 640x360 규격으로 자동 재생목록 루프 생성)")
+    new_yt1 = st.text_input("유튜브 비디오 URL 1", value=config.get("yt_url_1", ""), placeholder="https://www.youtube.com/watch?v=...")
+    new_yt2 = st.text_input("유튜브 비디오 URL 2 (선택)", value=config.get("yt_url_2", ""), placeholder="https://www.youtube.com/watch?v=...")
     
     # 4. 구글 앱스 스크립트 API URL 인풋
     new_url = st.text_input(
@@ -469,14 +431,13 @@ else:
         config["alert_seconds"] = (alert_min * 60) + alert_sec
         config["yt_url_1"] = new_yt1
         config["yt_url_2"] = new_yt2
-        config["yt_url_3"] = new_yt3
         
         with st.spinner("구글 스프레드시트에서 데이터를 새로 가져오는 중입니다..."):
             fresh_data = fetch_from_gsheets(new_url)
             if fresh_data:
                 config["data"] = fresh_data
                 
-                # 로컬 디스크 파일에 설정값 영구 보존
+                # 로컬 파일에 환경설정 직렬화 저장
                 try:
                     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                         json.dump({
@@ -484,13 +445,12 @@ else:
                             "event_title": new_title,
                             "alert_seconds": (alert_min * 60) + alert_sec,
                             "yt_url_1": new_yt1,
-                            "yt_url_2": new_yt2,
-                            "yt_url_3": new_yt3
+                            "yt_url_2": new_yt2
                         }, f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     st.error(f"영구 데이터 파일 기록 도중 오류가 발생했습니다: {e}")
                 
-                st.success("설정 값이 정상적으로 보존되었으며, 스프레드시트 동기화에 성공했습니다!")
+                st.success("설정이 저장되었습니다! 대기 화면에서 영상을 확인해 주세요.")
                 st.rerun()
             else:
-                st.warning("설정 값은 기록되었으나 구글 시트 데이터를 로드하지 못했습니다. 입력하신 구글 URL과 권한 설정을 확인해 주십시오.")
+                st.warning("설정 값은 기록되었으나 구글 시트 데이터를 로드하지 못했습니다. URL과 권한 설정을 확인해 주십시오.")
