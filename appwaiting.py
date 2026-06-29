@@ -191,7 +191,7 @@ if role == "📢 대기실 화면":
         row2_teachers = teachers[6:12]
         
         def display_column(t_key):
-            st.markdown(f"<h4 style='margin-top:0px; margin-bottom:12px; font-size:1.15em;'>🏫 {t_key}</h4>", unsafe_allow_html=True)
+            st.markdown(f"<h4 style='margin-top:0px; margin-bottom:8px; font-size:1.15em;'>🏫 {t_key}</h4>", unsafe_allow_html=True)
             parents = current_data[t_key]
             
             # 학생 수와 상관없이 항상 정확히 7행을 그리도록 설계 (빈 자리는 투명 Spacer 채움)
