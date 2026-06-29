@@ -15,15 +15,13 @@ seoul_tz = timezone(timedelta(hours=9))
 # 영구 저장을 위한 로컬 설정 파일 경로
 CONFIG_FILE = "settings_config.json"
 
-# 유튜브 URL에서 11자리 비디오 ID 추출하는 정규식 함수
-def extract_youtube_id(url):
+# 유튜브 주소에서 11자리 비디오 ID 추출하는 정규식 함수
+def extract_yt_id(url):
     if not url:
         return None
-    pattern = r'(?:v=|\/embed\/|\/1\/|\/v\/|https:\/\/youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})'
+    pattern = r'(?:v=|\/embed\/|\/1\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})'
     match = re.search(pattern, url)
-    if match:
-        return match.group(1)
-    return None
+    return match.group(1) if match else None
 
 # 1. 구글 시트에서 전체 데이터를 원본 그대로 읽어오는 함수
 def fetch_from_gsheets(api_url):
@@ -68,8 +66,8 @@ def load_config_from_file():
         "api_url": "",                            # 구글 앱스 스크립트 웹앱 URL
         "event_title": "진로학업 상담 대기 현황",   # 기본 행사명
         "alert_seconds": 450,                     # 기본 알림 제한 시간 (7분 30초)
-        "yt_url_1": "",                           # 유튜브 1순위 URL (RAM)
-        "yt_url_2": "",                           # 유튜브 2순위 URL (RAM)
+        "yt_url_1": "",                           # 유튜브 링크 1
+        "yt_url_2": "",                           # 유튜브 링크 2
         "data": {}                                # 로드된 명단 데이터
     }
     if os.path.exists(CONFIG_FILE):
@@ -109,18 +107,79 @@ if role == "📢 대기실 화면":
     
     @st.fragment(run_every=1)
     def render_waiting_room():
-        # 전체 화면 조밀한 패딩 설정
-        st.markdown("""
+        # 유튜브 ID 추출 및 임베드 URL 조합 (음소거/자동재생/무한반복 루프 적용)
+        yt_id1 = extract_yt_id(config.get("yt_url_1", ""))
+        yt_id2 = extract_yt_id(config.get("yt_url_2", ""))
+        
+        has_video = False
+        embed_url = ""
+        
+        if yt_id1 and yt_id2:
+            has_video = True
+            embed_url = f"https://www.youtube.com/embed/{yt_id1}?playlist={yt_id1},{yt_id2}&autoplay=1&loop=1&mute=1"
+        elif yt_id1:
+            has_video = True
+            embed_url = f"https://www.youtube.com/embed/{yt_id1}?playlist={yt_id1}&autoplay=1&loop=1&mute=1"
+        elif yt_id2:
+            has_video = True
+            embed_url = f"https://www.youtube.com/embed/{yt_id2}?playlist={yt_id2}&autoplay=1&loop=1&mute=1"
+
+        # 영상 레이아웃 유무에 따른 동적 스타일 설정 및 픽셀 고정 행 스타일 정의
+        right_padding = 660 if has_video else 20
+        st.markdown(f"""
             <style>
-            .stApp { background-color: #f8f9fa !important; }
-            .block-container { padding-top: 1.5rem !important; padding-bottom: 0.5rem !important; }
+            /* 메인 화면 우측 여백 조절 */
+            .block-container {{
+                max-width: 100% !important;
+                padding-right: {right_padding}px !important;
+                background-color: #f8f9fa !important;
+                transition: padding-right 0.3s ease;
+            }}
+            /* 행 높이 고정을 위한 CSS */
+            .parent-row-fixed {{
+                height: 42px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 6px 12px;
+                margin-bottom: 5px;
+                border-radius: 6px;
+                border: 1px solid #e2e8f0;
+                box-sizing: border-box;
+                font-size: 0.95em;
+            }}
+            .waiting-status {{
+                background-color: #ffffff;
+                color: #4a5568;
+            }}
+            .processing-status {{
+                background-color: #c6f6d5;
+                color: #22543d;
+                border-color: #9ae6b4;
+                font-weight: bold;
+            }}
+            .done-status {{
+                background-color: #edf2f7;
+                color: #a0aec0;
+                text-decoration: line-through;
+                opacity: 0.7;
+            }}
+            .empty-spacer {{
+                border: 1px dashed #e2e8f0;
+                background-color: transparent;
+                visibility: hidden;
+            }}
             </style>
         """, unsafe_allow_html=True)
         
-        # 서울 기준 시간 출력
+        # 시계 사이즈 소형화 및 아래 마진 제거
         current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
-        st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
-        st.markdown("---")
+        st.markdown(f"""
+            <div style="font-size: 13px; color: #4a5568; margin-bottom: 0px; padding-bottom: 0px; line-height: 1;">
+                🕒 현재 시각: {current_time}
+            </div>
+            <hr style="margin-top: 5px; margin-bottom: 12px; border: 0; height: 1px; background: #cbd5e0;">
+        """, unsafe_allow_html=True)
         
         current_data = config["data"]
         if not current_data:
@@ -128,67 +187,77 @@ if role == "📢 대기실 화면":
             return
             
         teachers = list(current_data.keys())
+        row1_teachers = teachers[:6]
+        row2_teachers = teachers[6:12]
         
-        # 유튜브 URL 파싱 후 재생 리스트 구성 (2개 무한 루프 구현)
-        yt_id1 = extract_youtube_id(config.get("yt_url_1", ""))
-        yt_id2 = extract_youtube_id(config.get("yt_url_2", ""))
-        
-        has_video = bool(yt_id1 or yt_id2)
-        
-        # 레이아웃 정의 (유튜브가 있으면 좌우 분할, 없으면 전체 화면 대기판)
-        if has_video:
-            col_left, col_right = st.columns([1.6, 1])  # 61.5% : 38.5% 화면 분할
-        else:
-            col_left = st.container()
+        def display_column(t_key):
+            st.markdown(f"<h4 style='margin-top:0px; margin-bottom:8px; font-size:1.15em;'>🏫 {t_key}</h4>", unsafe_allow_html=True)
+            parents = current_data[t_key]
             
-        # [좌측 화면] 한 화면에 모든 대기 명단이 표기되는 컴팩트 레이아웃
-        with col_left:
-            # 좌측 내부 공간 분할 (5열 배치)
-            inner_cols = st.columns(5)
-            
-            for idx, t_key in enumerate(teachers):
-                col_idx = idx % 5
-                with inner_cols[col_idx]:
-                    # 폰트와 행 간격 압축 디자인
-                    st.markdown(f"<p style='font-size:20px; font-weight:bold; margin-bottom:5px; color:#2E4053;'>🏫 {t_key}</p>", unsafe_allow_html=True)
+            # 학생 수와 상관없이 항상 정확히 7행을 그리도록 설계 (빈 자리는 투명 Spacer 채움)
+            for k in range(7):
+                if k < len(parents):
+                    parent = parents[k]
+                    name = parent["name"]
+                    status = parent["status"]
                     
-                    for parent in current_data[t_key]:
-                        name = parent["name"]
-                        status = parent["status"]
+                    if status == "상담중":
+                        class_name = "processing-status"
+                        status_text = "상담중"
+                        bold_style = "font-weight: bold;"
+                    elif status == "상담종료":
+                        class_name = "done-status"
+                        status_text = "종료"
+                        bold_style = ""
+                    else:
+                        class_name = "waiting-status"
+                        status_text = ""
+                        bold_style = ""
                         
-                        if status == "상담중":
-                            st.markdown(f"<div style='font-size:12px; font-weight:bold; color:#196F3D; background-color:#D4EFDF; padding:2px 6px; border-radius:3px; margin:2px 0;'>🟢 {name}</div>", unsafe_allow_html=True)
-                        elif status == "상담종료":
-                            st.markdown(f"<div style='font-size:12px; color:#95A5A6; text-decoration:line-through; margin:2px 0;'>⚪ {name} (종료)</div>", unsafe_allow_html=True)
-                        else:
-                            st.markdown(f"<div style='font-size:12px; color:#2C3E50; margin:2px 0;'>◽ {name}</div>", unsafe_allow_html=True)
-                    st.markdown("<hr style='margin: 8px 0; border:0; border-top:1px solid #ddd;'>", unsafe_allow_html=True)
-                    
-        # [우측 화면] 유튜브 가로 640, 세로 360 정밀 중앙 배치
-        if has_video:
-            with col_right:
-                # 연속 반복(Loop)을 위한 재생목록 매개변수 빌딩
-                if yt_id1 and yt_id2:
-                    playlist = f"{yt_id1},{yt_id2}"
-                    start_video = yt_id1
-                else:
-                    start_video = yt_id1 if yt_id1 else yt_id2
-                    playlist = start_video
-                    
-                # 구글 크롬/Safari 정책에 맞춰 자동재생을 위한 음소거(mute=1) 탑재
-                embed_url = f"https://www.youtube.com/embed/{start_video}?playlist={playlist}&loop=1&autoplay=1&mute=1&controls=1"
-                
-                # 우측 영역 세로 정중앙 정렬을 위한 flex 디자인 적용
-                st.markdown(f"""
-                    <div style="display: flex; align-items: center; justify-content: center; height: 75vh; width: 100%;">
-                        <div style="border: 2px solid #ddd; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); overflow: hidden; width: 640px; height: 360px;">
-                            <iframe width="640" height="360" src="{embed_url}" 
-                                    frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen>
-                            </iframe>
+                    st.markdown(f"""
+                        <div class="parent-row-fixed {class_name}">
+                            <span style="{bold_style}">{name}</span>
+                            <span style="font-size: 0.85em; font-weight: bold;">{status_text}</span>
                         </div>
-                    </div>
-                """, unsafe_allow_html=True)
+                    """, unsafe_allow_html=True)
+                else:
+                    # 행 정렬 무너짐 방지용 Invisible Spacer
+                    st.markdown("""
+                        <div class="parent-row-fixed empty-spacer">
+                            &nbsp;
+                        </div>
+                    """, unsafe_allow_html=True)
+            st.markdown("---")
+
+        cols1 = st.columns(6)
+        for idx, t_key in enumerate(row1_teachers):
+            with cols1[idx]:
+                display_column(t_key)
                 
+        if row2_teachers:
+            cols2 = st.columns(6)
+            for idx, t_key in enumerate(row2_teachers):
+                with cols2[idx]:
+                    display_column(t_key)
+
+        # 우측 여백 0, 세로축 중앙 정렬로 고정된 유튜브 컨테이너 마운트
+        if has_video:
+            st.markdown(f"""
+                <div style="
+                    position: fixed;
+                    right: 0px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    width: 640px;
+                    height: 360px;
+                    z-index: 10000;
+                    background-color: #000;
+                    box-shadow: -4px 0px 12px rgba(0,0,0,0.15);
+                ">
+                    <iframe width="640" height="360" src="{embed_url}" frameborder="0" allow="autoplay; encrypted-media;" allowfullscreen></iframe>
+                </div>
+            """, unsafe_allow_html=True)
+                    
     render_waiting_room()
 
 # --- 모드 2: 선생님용 관리 패널 ---
@@ -368,11 +437,10 @@ elif role == "👑 중간 관리자 화면":
                     
         render_manager_panel()
 
-# --- 모드 4: 시스템 설정 페이지 ---
+# --- 모드 4: 시스템 설정 페이지 (비밀번호 보안) ---
 else:
     st.title("⚙️ 시스템 설정 및 초기 환경 세팅")
     
-    # 비밀번호 인증 검증 단계
     if "settings_authorized" not in st.session_state:
         st.session_state["settings_authorized"] = False
         
@@ -387,7 +455,7 @@ else:
                 st.success("인증에 성공했습니다!")
                 st.rerun()
             elif pw_input:
-                st.error("비밀번호가 올바르지 않습니다.")
+                st.error("비밀번호가 올바르지 않습니다. 다시 확인하십시오.")
         st.stop()
         
     col_title, col_lock = st.columns([4, 1])
@@ -400,10 +468,8 @@ else:
             
     st.markdown("---")
     
-    # 1. 행사명 변경 인풋
     new_title = st.text_input("1. 행사명 설정", value=config["event_title"])
     
-    # 2. 알림 시간 분/초 단위 인풋
     st.write("2. 교사 관리 패널 경고 시간 설정")
     col1, col2 = st.columns(2)
     with col1:
@@ -411,17 +477,15 @@ else:
     with col2:
         alert_sec = st.number_input("알림 기준 (초)", min_value=0, max_value=59, value=int(config["alert_seconds"] % 60))
         
-    # 3. 유튜브 주소 설정 (최대 2개 무한반복 연동)
-    st.write("3. 대기실 재생용 유튜브 비디오 설정 (입력 시 640x360 규격으로 자동 재생목록 루프 생성)")
-    new_yt1 = st.text_input("유튜브 비디오 URL 1", value=config.get("yt_url_1", ""), placeholder="https://www.youtube.com/watch?v=...")
-    new_yt2 = st.text_input("유튜브 비디오 URL 2 (선택)", value=config.get("yt_url_2", ""), placeholder="https://www.youtube.com/watch?v=...")
-    
-    # 4. 구글 앱스 스크립트 API URL 인풋
     new_url = st.text_input(
-        "4. 구글 앱스 스크립트 웹앱 URL 입력", 
+        "3. 구글 앱스 스크립트 웹앱 URL 입력", 
         value=config["api_url"], 
         placeholder="https://script.google.com/macros/s/.../exec"
     )
+
+    st.write("4. 대기화면 실시간 스트리밍용 유튜브 영상 설정 (최대 2개 링크 등록 가능 / 반복 재생 지원)")
+    yt_url_1 = st.text_input("유튜브 링크 1", value=config.get("yt_url_1", ""), placeholder="https://www.youtube.com/watch?v=...")
+    yt_url_2 = st.text_input("유튜브 링크 2", value=config.get("yt_url_2", ""), placeholder="https://youtu.be/...")
     
     st.markdown("---")
     if st.button("💾 설정 저장 및 스프레드시트 동기화", use_container_width=True, type="primary"):
@@ -429,28 +493,28 @@ else:
         config["api_url"] = new_url
         config["event_title"] = new_title
         config["alert_seconds"] = (alert_min * 60) + alert_sec
-        config["yt_url_1"] = new_yt1
-        config["yt_url_2"] = new_yt2
+        config["yt_url_1"] = yt_url_1
+        config["yt_url_2"] = yt_url_2
         
         with st.spinner("구글 스프레드시트에서 데이터를 새로 가져오는 중입니다..."):
             fresh_data = fetch_from_gsheets(new_url)
             if fresh_data:
                 config["data"] = fresh_data
                 
-                # 로컬 파일에 환경설정 직렬화 저장
+                # 로컬 디스크 파일에 영구 보존용 저장
                 try:
                     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                         json.dump({
                             "api_url": new_url,
                             "event_title": new_title,
                             "alert_seconds": (alert_min * 60) + alert_sec,
-                            "yt_url_1": new_yt1,
-                            "yt_url_2": new_yt2
+                            "yt_url_1": yt_url_1,
+                            "yt_url_2": yt_url_2
                         }, f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     st.error(f"영구 데이터 파일 기록 도중 오류가 발생했습니다: {e}")
                 
-                st.success("설정이 저장되었습니다! 대기 화면에서 영상을 확인해 주세요.")
+                st.success("설정 값이 정상적으로 보존되었으며, 스프레드시트 동기화에 성공했습니다!")
                 st.rerun()
             else:
-                st.warning("설정 값은 기록되었으나 구글 시트 데이터를 로드하지 못했습니다. URL과 권한 설정을 확인해 주십시오.")
+                st.warning("설정 값은 기록되었으나 구글 시트 데이터를 로드하지 못했습니다. 입력하신 구글 URL과 권한 설정을 확인해 주십시오.")
