@@ -96,6 +96,12 @@ role = st.sidebar.selectbox(
     ["📢 대기실 화면", "🛠️ 선생님용 관리 패널", "👑 중간 관리자 화면", "⚙️ 시스템 설정"]
 )
 
+# 사이드바 수동 동기화 버튼 명시화
+if st.sidebar.button("🔄 구글 시트 새로고침", key="sidebar_sync_btn"):
+    config["data"] = fetch_from_gsheets(config["api_url"])
+    st.sidebar.success("동기화가 완료되었습니다!")
+    st.rerun()
+
 # 구글 API URL 미등록 시 경고 문구 표시 (설정 화면 제외)
 if not config["api_url"] and role != "⚙️ 시스템 설정":
     st.warning("⚠️ 구글 앱스 스크립트 URL이 등록되지 않았습니다. 사이드바에서 '⚙️ 시스템 설정'으로 이동하여 최초 설정을 완료해 주세요.")
@@ -172,14 +178,21 @@ if role == "📢 대기실 화면":
             </style>
         """, unsafe_allow_html=True)
         
-        # 시계 사이즈 소형화 및 아래 마진 제거
+        # 시계 사이즈 소형화 및 수동 동기화 버튼 병렬 배치
         current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
-        st.markdown(f"""
-            <div style="font-size: 1em; color: #4a5568; margin-bottom: 0px; padding-bottom: 0px; line-height: 1;">
-                🕒 현재 시각: {current_time}
-            </div>
-            <hr style="margin-top: 5px; margin-bottom: 12px; border: 0; height: 1px; background: #cbd5e0;">
-        """, unsafe_allow_html=True)
+        hc1, hc2 = st.columns([5, 1])
+        with hc1:
+            st.markdown(f"""
+                <div style="font-size: 13px; color: #4a5568; margin-top: 8px; line-height: 1;">
+                    🕒 현재 시각: {current_time}
+                </div>
+            """, unsafe_allow_html=True)
+        with hc2:
+            if st.button("🔄 명단 동기화", key="sync_waiting_btn", use_container_width=True):
+                config["data"] = fetch_from_gsheets(config["api_url"])
+                st.rerun()
+                
+        st.markdown('<hr style="margin-top: 5px; margin-bottom: 12px; border: 0; height: 1px; background: #cbd5e0;">', unsafe_allow_html=True)
         
         current_data = config["data"]
         if not current_data:
@@ -194,8 +207,8 @@ if role == "📢 대기실 화면":
             st.markdown(f"<h4 style='margin-top:0px; margin-bottom:8px; font-size:1.15em;'>🏫 {t_key}</h4>", unsafe_allow_html=True)
             parents = current_data[t_key]
             
-            # 학생 수와 상관없이 항상 정확히 7행을 그리도록 설계 (빈 자리는 투명 Spacer 채움)
-            for k in range(5):
+            # 학생 수와 상관없이 항상 정확히 7행을 그리도록 설계
+            for k in range(7):
                 if k < len(parents):
                     parent = parents[k]
                     name = parent["name"]
@@ -245,7 +258,7 @@ if role == "📢 대기실 화면":
             st.markdown(f"""
                 <div style="
                     position: fixed;
-                    right: 10px;
+                    right: 0px;
                     top: 50%;
                     transform: translateY(-50%);
                     width: 640px;
@@ -315,7 +328,16 @@ elif role == "🛠️ 선생님용 관리 패널":
                 st.markdown("<style>.stApp { background-color: #f8f9fa !important; }</style>", unsafe_allow_html=True)
 
             current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
-            st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
+            
+            # 시계와 우측 동기화 버튼 정렬
+            tc1, tc2 = st.columns([4, 1])
+            with tc1:
+                st.markdown(f"#### 🕒 현재 시각: **{current_time}**")
+            with tc2:
+                if st.button("🔄 명단 동기화", key="sync_teacher_btn", use_container_width=True):
+                    config["data"] = fetch_from_gsheets(config["api_url"])
+                    st.rerun()
+                    
             st.markdown(f"##### 📌 {my_teacher} 담당 학부모 목록 (경고 기준: {alert_limit // 60}분 {alert_limit % 60}초)")
             
             for idx, parent in enumerate(parents_list):
@@ -378,7 +400,16 @@ elif role == "👑 중간 관리자 화면":
         @st.fragment(run_every=1)
         def render_manager_panel():
             current_time = datetime.now(seoul_tz).strftime("%Y년 %m월 %d일 %H시 %M분 %S초")
-            st.markdown(f"#### 🕒 현재 시각 (서울): **{current_time}**")
+            
+            # 중간 관리자 시계와 우측 동기화 버튼 병렬 배치
+            mc1, mc2 = st.columns([4, 1])
+            with mc1:
+                st.markdown(f"#### 🕒 현재 시각 (서울): **{current_time}**")
+            with mc2:
+                if st.button("🔄 명단 동기화", key="sync_manager_btn", use_container_width=True):
+                    config["data"] = fetch_from_gsheets(config["api_url"])
+                    st.rerun()
+                    
             st.write("※ 한 번에 6개 부스의 진행 상태와 경과 시간을 제어 및 관리할 수 있습니다.")
             st.markdown("---")
             
@@ -483,7 +514,7 @@ else:
         placeholder="https://script.google.com/macros/s/.../exec"
     )
 
-    st.write("4. 대기화면 실시간 스트리밍용 유튜브 영상 설정 (최대 2개 링크 등록 가능 / 반복 재생 지원)")
+    st.write("4. 대기화면 실시간 스트리밍용 유튜브 영상 설정")
     yt_url_1 = st.text_input("유튜브 링크 1", value=config.get("yt_url_1", ""), placeholder="https://www.youtube.com/watch?v=...")
     yt_url_2 = st.text_input("유튜브 링크 2", value=config.get("yt_url_2", ""), placeholder="https://youtu.be/...")
     
