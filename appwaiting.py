@@ -68,6 +68,7 @@ def load_config_from_file():
         "alert_seconds": 450,                     # 기본 알림 제한 시간 (7분 30초)
         "yt_url_1": "",                           # 유튜브 링크 1
         "yt_url_2": "",                           # 유튜브 링크 2
+        "notice_text": "",                        # 대기화면 안내 사항 (텍스트)
         "data": {}                                # 로드된 명단 데이터
     }
     if os.path.exists(CONFIG_FILE):
@@ -96,7 +97,7 @@ role = st.sidebar.selectbox(
     ["📢 대기실 화면", "🛠️ 선생님용 관리 패널", "👑 중간 관리자 화면", "⚙️ 시스템 설정"]
 )
 
-# 사이드바 수동 동기화 버튼 명시화
+# 사이드바 수동 동기화 버튼
 if st.sidebar.button("🔄 구글 시트 새로고침", key="sidebar_sync_btn"):
     config["data"] = fetch_from_gsheets(config["api_url"])
     st.sidebar.success("동기화가 완료되었습니다!")
@@ -207,7 +208,6 @@ if role == "📢 대기실 화면":
             st.markdown(f"<h4 style='margin-top:0px; margin-bottom:8px; font-size:1.15em;'>🏫 {t_key}</h4>", unsafe_allow_html=True)
             parents = current_data[t_key]
             
-            # 학생 수와 상관없이 항상 정확히 7행을 그리도록 설계
             for k in range(7):
                 if k < len(parents):
                     parent = parents[k]
@@ -234,7 +234,6 @@ if role == "📢 대기실 화면":
                         </div>
                     """, unsafe_allow_html=True)
                 else:
-                    # 행 정렬 무너짐 방지용 Invisible Spacer
                     st.markdown("""
                         <div class="parent-row-fixed empty-spacer">
                             &nbsp;
@@ -253,7 +252,39 @@ if role == "📢 대기실 화면":
                 with cols2[idx]:
                     display_column(t_key)
 
-        # 우측 여백 0, 세로축 중앙 정렬로 고정된 유튜브 컨테이너 마운트
+        # 1. 안내 사항 컴포넌트 출력 (영상이 설정되어 있고 공지 글자가 있을 때 작동)
+        notice_text = config.get("notice_text", "")
+        if has_video and notice_text:
+            st.markdown(f"""
+                <div style="
+                    position: fixed;
+                    right: 0px;
+                    bottom: calc(50% + 180px + 15px); /* 영상 시작선에서 15px 위에 고정 */
+                    width: 640px;
+                    z-index: 10000;
+                    background-color: #ffffff;
+                    border: 1px solid #cbd5e0;
+                    border-radius: 8px;
+                    padding: 16px;
+                    box-shadow: -4px 4px 12px rgba(0,0,0,0.08);
+                    box-sizing: border-box;
+                ">
+                    <div style="font-weight: bold; font-size: 1.05em; color: #ff8c00; margin-bottom: 8px; display: flex; align-items: center;">
+                        📢 대기실 안내 사항
+                    </div>
+                    <div style="
+                        white-space: pre-wrap; 
+                        word-wrap: break-word; 
+                        font-size: 0.93em; 
+                        color: #2d3748; 
+                        line-height: 1.55;
+                        max-height: 250px; /* 높이가 과하게 넘어가지 않도록 방지 */
+                        overflow-y: auto;
+                    ">{notice_text}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        # 2. 우측 여백 0, 세로축 중앙 정렬 유튜브 컨테이너 마운트
         if has_video:
             st.markdown(f"""
                 <div style="
@@ -518,6 +549,15 @@ else:
     yt_url_1 = st.text_input("유튜브 링크 1", value=config.get("yt_url_1", ""), placeholder="https://www.youtube.com/watch?v=...")
     yt_url_2 = st.text_input("유튜브 링크 2", value=config.get("yt_url_2", ""), placeholder="https://youtu.be/...")
     
+    # 신규 추가: 안내 사항 입력을 위한 텍스트 에어리어 배치
+    st.write("5. 대기화면 우측 알림창 안내 사항 설정 (여러 줄 줄바꿈 가능)")
+    notice_text = st.text_area(
+        "대기실 화면 우측 유튜브 영상 위에 표시할 안내 사항을 작성해 주세요.", 
+        value=config.get("notice_text", ""), 
+        placeholder="예시:\n- 대기표 번호 순서대로 입장해 주세요.\n- 대기 구역 내에서는 조용히 대기 바랍니다.\n- 문의사항은 안내 데스크로 문의하세요.",
+        height=150
+    )
+    
     st.markdown("---")
     if st.button("💾 설정 저장 및 스프레드시트 동기화", use_container_width=True, type="primary"):
         # 전역 메모리 캐시 값 갱신
@@ -526,6 +566,7 @@ else:
         config["alert_seconds"] = (alert_min * 60) + alert_sec
         config["yt_url_1"] = yt_url_1
         config["yt_url_2"] = yt_url_2
+        config["notice_text"] = notice_text  # 입력한 텍스트 반영
         
         with st.spinner("구글 스프레드시트에서 데이터를 새로 가져오는 중입니다..."):
             fresh_data = fetch_from_gsheets(new_url)
@@ -540,7 +581,8 @@ else:
                             "event_title": new_title,
                             "alert_seconds": (alert_min * 60) + alert_sec,
                             "yt_url_1": yt_url_1,
-                            "yt_url_2": yt_url_2
+                            "yt_url_2": yt_url_2,
+                            "notice_text": notice_text  # 로컬 파일 보관
                         }, f, ensure_ascii=False, indent=4)
                 except Exception as e:
                     st.error(f"영구 데이터 파일 기록 도중 오류가 발생했습니다: {e}")
