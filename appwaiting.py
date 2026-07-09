@@ -290,7 +290,7 @@ if role == "📢 대기실 화면":
                 <div style="
                     position: fixed;
                     right: 0px;
-                    top: 50%;
+                    top: 60%;
                     transform: translateY(-50%);
                     width: 640px;
                     height: 360px;
