@@ -259,7 +259,7 @@ if role == "📢 대기실 화면":
                 <div style="
                     position: fixed;
                     right: 0px;
-                    bottom: calc(60% + 180px + 15px); /* 영상 시작선에서 15px 위에 고정 */
+                    bottom: calc(40% + 180px + 15px); /* 영상 시작선에서 15px 위에 고정 */
                     width: 640px;
                     z-index: 10000;
                     background-color: #ffffff;
